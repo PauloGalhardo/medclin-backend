@@ -19,7 +19,7 @@ exports.getAppointments = async (req, res) => {
       }
     }
 
-    // Busca agendamentos populando dados do paciente (incluindo o novo campo CEP)
+    // Busca agendamentos populando dados do paciente
     const appointments = await Appointment.find(query)
       .populate('patientId', 'name phone email cep');
 
@@ -41,13 +41,12 @@ exports.getAppointments = async (req, res) => {
 
     res.json(appointments);
   } catch (err) {
-    // Adicione esta linha para ver exatamente o que o banco de dados reclamou:
-    console.error("ERRO DETALHADO AO SALVAR CONSULTA:", err); 
-    res.status(500).json({ error: "Erro ao criar agendamento." });
+    console.error("ERRO AO BUSCAR CONSULTAS:", err); 
+    res.status(500).json({ error: "Erro ao buscar consultas." });
   }
 };
 
-// CRIAR AGENDAMENTO
+// CRIAR AGENDAMENTO (Corrigido com bloqueio de agenda duplicada)
 exports.createAppointment = async (req, res) => {
   try {
     const { patientId, doctorName, date, time } = req.body;
@@ -59,17 +58,28 @@ exports.createAppointment = async (req, res) => {
       return res.status(400).json({ error: "Todos os campos são obrigatórios." });
     }
 
+    // --- LOGICA DE BLOQUEIO (Bug 7) ---
+    // Verifica se já existe um agendamento para o mesmo médico, data e hora
+    const conflito = await Appointment.findOne({ doctorName, date, time });
+    
+    if (conflito) {
+      return res.status(400).json({ 
+        error: "Horário indisponível. Este médico já possui uma consulta agendada para este dia e horário." 
+      });
+    }
+    // ----------------------------------
+
     const newAppointment = new Appointment({
       patientId: idDoPaciente,
       doctorName,
       date,
       time
-      // Note que o CEP não é mais enviado aqui, pois ele já está no registro do User
     });
 
     await newAppointment.save();
     res.status(201).json(newAppointment);
   } catch (err) {
+    console.error("ERRO AO CRIAR AGENDAMENTO:", err);
     res.status(500).json({ error: "Erro ao criar agendamento." });
   }
 };
@@ -77,6 +87,22 @@ exports.createAppointment = async (req, res) => {
 // ATUALIZAR AGENDAMENTO
 exports.updateAppointment = async (req, res) => {
   try {
+    const { doctorName, date, time } = req.body;
+
+    // Opcional: Validar conflito também na atualização (evita mover para um horário ocupado)
+    if (doctorName && date && time) {
+      const conflito = await Appointment.findOne({ 
+        _id: { $ne: req.params.id }, // Ignora o próprio agendamento que está sendo editado
+        doctorName, 
+        date, 
+        time 
+      });
+
+      if (conflito) {
+        return res.status(400).json({ error: "Não é possível alterar para este horário, pois o médico já está ocupado." });
+      }
+    }
+
     const updated = await Appointment.findByIdAndUpdate(
       req.params.id,
       req.body,
