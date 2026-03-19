@@ -12,7 +12,6 @@ const appointmentSchema = new mongoose.Schema({
   },
   date: { type: String, required: true }, // YYYY-MM-DD
   time: { type: String, required: true }, // HH:MM
- // cep: { type: String, required: true },
   address: {
     street: String,
     neighborhood: String,

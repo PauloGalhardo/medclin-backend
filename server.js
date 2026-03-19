@@ -16,7 +16,7 @@ mongoose.connect(process.env.MONGO_URI)
     console.error('❌ Erro ao conectar ao MongoDB:', err.message);
     process.exit(1);
   });
-// Escuta erros que ocorrem DEPOIS que a conexão já foi estabelecida
+// Escuta erros que ocorrem depois que a conexão já foi estabelecida
 mongoose.connection.on('error', (err) => {
   console.error('⚠️ Erro na conexão com o Atlas:', err);
 });
@@ -26,12 +26,12 @@ mongoose.connection.on('disconnected', () => {
   console.log('🔌 Mongoose desconectado do cluster Atlas.');
 });
 
-// IMPORTAÇÃO DAS ROTAS
+// Importação das Rotas
 const authRoutes = require('./routes/authRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
 const doctorRoutes = require('./routes/doctorRoutes');
 
-// ENDPOINTS BASE
+// Endpoints base
 app.use('/api/auth', authRoutes);
 app.use('/api/agendamentos', appointmentRoutes);
 app.use('/api/doctors', doctorRoutes);

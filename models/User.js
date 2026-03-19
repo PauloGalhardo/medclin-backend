@@ -6,7 +6,6 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   phone: { type: String, default: "" },
   role: { type: String, enum: ['paciente', 'admin', 'master'], default: 'paciente' },
-  // NOVOS CAMPOS DE ENDEREÇO
   cep: { type: String, default: "" },
   logradouro: { type: String, default: "" },
   bairro: { type: String, default: "" },
