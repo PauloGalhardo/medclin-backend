@@ -7,7 +7,6 @@ exports.getAppointments = async (req, res) => {
   try {
     let query = {};
 
-    // Filtro por perfil
     if (req.userRole === 'paciente') {
       query.patientId = req.userId;
     } else if (req.userRole === 'medico') {
@@ -19,21 +18,14 @@ exports.getAppointments = async (req, res) => {
       }
     }
 
-    // Busca agendamentos populando dados do paciente
     const appointments = await Appointment.find(query)
       .populate('patientId', 'name phone email cep');
 
-    // ORDENAÇÃO V3.0: Cronológica (Data/Hora) + Alfabética (Nome do Paciente)
     appointments.sort((a, b) => {
-      // 1. Comparar Datas
       if (a.date < b.date) return -1;
       if (a.date > b.date) return 1;
-
-      // 2. Se as datas forem iguais, comparar Horários
       if (a.time < b.time) return -1;
       if (a.time > b.time) return 1;
-
-      // 3. Se data e hora forem iguais, critério de desempate: Nome do Paciente
       const nameA = a.patientId?.name || "";
       const nameB = b.patientId?.name || "";
       return nameA.localeCompare(nameB);
@@ -42,32 +34,33 @@ exports.getAppointments = async (req, res) => {
     res.json(appointments);
   } catch (err) {
     console.error("ERRO AO BUSCAR CONSULTAS:", err); 
-    res.status(500).json({ error: "Erro ao buscar consultas." });
+    res.status(500).json({ error: "Erro ao buscar consultas no servidor." });
   }
 };
 
-// CRIAR AGENDAMENTO (Corrigido com bloqueio de agenda duplicada)
+// CRIAR AGENDAMENTO
 exports.createAppointment = async (req, res) => {
   try {
     const { patientId, doctorName, date, time } = req.body;
-
-    // Se for o próprio paciente agendando, garantimos que o ID seja o dele
     const idDoPaciente = req.userRole === 'paciente' ? req.userId : patientId;
 
     if (!idDoPaciente || !doctorName || !date || !time) {
       return res.status(400).json({ error: "Todos os campos são obrigatórios." });
     }
 
-    // --- LOGICA DE BLOQUEIO (Bug 7) ---
-    // Verifica se já existe um agendamento para o mesmo médico, data e hora
+    // Bloqueio de data retroativa
+    const hoje = new Date().toISOString().split('T')[0];
+    if (date < hoje) {
+      return res.status(400).json({ error: "Não é possível agendar para uma data que já passou." });
+    }
+
+    // Verifica conflito de agenda do médico
     const conflito = await Appointment.findOne({ doctorName, date, time });
-    
     if (conflito) {
       return res.status(400).json({ 
         error: "Horário indisponível. Este médico já possui uma consulta agendada para este dia e horário." 
       });
     }
-    // ----------------------------------
 
     const newAppointment = new Appointment({
       patientId: idDoPaciente,
@@ -80,7 +73,7 @@ exports.createAppointment = async (req, res) => {
     res.status(201).json(newAppointment);
   } catch (err) {
     console.error("ERRO AO CRIAR AGENDAMENTO:", err);
-    res.status(500).json({ error: "Erro ao criar agendamento." });
+    res.status(500).json({ error: "Erro interno ao processar agendamento." });
   }
 };
 
@@ -88,19 +81,28 @@ exports.createAppointment = async (req, res) => {
 exports.updateAppointment = async (req, res) => {
   try {
     const { doctorName, date, time } = req.body;
+    
+    // 1. Busca o agendamento atual para completar dados faltantes na validação
+    const agendamentoAtual = await Appointment.findById(req.params.id);
+    if (!agendamentoAtual) {
+      return res.status(404).json({ error: "Agendamento não encontrado." });
+    }
 
-    // Opcional: Validar conflito também na atualização (evita mover para um horário ocupado)
-    if (doctorName && date && time) {
-      const conflito = await Appointment.findOne({ 
-        _id: { $ne: req.params.id }, // Ignora o próprio agendamento que está sendo editado
-        doctorName, 
-        date, 
-        time 
-      });
+    // 2. Determina os valores finais (o que veio no body ou o que já existia)
+    const finalDoctor = doctorName || agendamentoAtual.doctorName;
+    const finalDate = date || agendamentoAtual.date;
+    const finalTime = time || agendamentoAtual.time;
 
-      if (conflito) {
-        return res.status(400).json({ error: "Não é possível alterar para este horário, pois o médico já está ocupado." });
-      }
+    // 3. Verifica conflito (excluindo o próprio ID da busca)
+    const conflito = await Appointment.findOne({ 
+      _id: { $ne: req.params.id }, 
+      doctorName: finalDoctor, 
+      date: finalDate, 
+      time: finalTime 
+    });
+
+    if (conflito) {
+      return res.status(400).json({ error: "Conflito de agenda: Este médico já está ocupado neste novo horário." });
     }
 
     const updated = await Appointment.findByIdAndUpdate(
@@ -110,7 +112,8 @@ exports.updateAppointment = async (req, res) => {
     );
     res.json(updated);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao atualizar." });
+    console.error("ERRO AO ATUALIZAR:", err);
+    res.status(500).json({ error: "Erro ao atualizar agendamento." });
   }
 };
 
@@ -118,8 +121,8 @@ exports.updateAppointment = async (req, res) => {
 exports.deleteAppointment = async (req, res) => {
   try {
     await Appointment.findByIdAndDelete(req.params.id);
-    res.json({ message: "Agendamento removido." });
+    res.json({ message: "Agendamento removido com sucesso." });
   } catch (err) {
-    res.status(500).json({ error: "Erro ao deletar." });
+    res.status(500).json({ error: "Erro ao deletar agendamento." });
   }
 };
